@@ -1,0 +1,15 @@
+version: '3'
+services:
+  explorerServer:
+    image: golang:1.18.3
+    volumes:
+      - ./:/home/chain
+    ports:
+      - "${EXPLORER_SERVER_PORT}:${EXPLORER_SERVER_PORT}"
+    restart: always
+    working_dir: /home/chain
+    command: /bin/bash -c "./main"
+    environment:
+      - ELASTICSEARCH_PATH=${ELASTICSEARCH_PATH}
+      - EXPLORER_SERVER_PORT=${EXPLORER_SERVER_PORT}
+      - CHAIN_HTTP_URL=${CHAIN_HTTP_URL}
