@@ -297,7 +297,8 @@ func Sync() {
 						if header.BaseFee != nil {
 							// 交易费
 							transactionFee := new(big.Int)
-							transactionFee.Mul(header.BaseFee, tx.GasTipCap())
+							transactionFee.Add(header.BaseFee, tx.GasTipCap())
+							transactionFee.Mul(transactionFee, new(big.Int).SetUint64(tx.Gas()))
 							esTx.TransactionFee = transactionFee.String()
 							// Savings Fees
 							txSavingsFee := new(big.Int)
