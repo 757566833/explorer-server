@@ -82,7 +82,7 @@ type ESTx struct {
 	TransactionIndex uint        `json:"transactionIndex"`
 	TransactionFee   string      `json:"transactionFee"`
 	// 1559
-	BurntFees    string `json:"BurntFees"`
+	BurntFees    string `json:"burntFees"`
 	TxSavingsFee string `json:"txSavingsFee"`
 }
 
