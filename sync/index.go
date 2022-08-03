@@ -60,6 +60,7 @@ type ESTx struct {
 	From       common.Address   `json:"from"                        gencodec:"required"`
 	AccessList types.AccessList `json:"accessList"                  gencodec:"required"`
 	IsFake     bool             `json:"isFake"                      gencodec:"required"`
+	BaseFee    string           `json:"baseFeePerGas" rlp:"optional"`
 
 	// receipt
 	ReceiptType       uint8        `json:"receiptType"`
@@ -263,7 +264,7 @@ func Sync() {
 						esTx.R = r.String()
 						esTx.S = s.String()
 						esTx.Time = header.Time
-
+						esTx.BaseFee = header.BaseFee.String()
 						msg, asMsgErr := tx.AsMessage(types.LatestSignerForChainID(tx.ChainId()), tx.GasPrice())
 						if asMsgErr != nil {
 							log.Logger.Error("as message 出错")
@@ -292,7 +293,6 @@ func Sync() {
 						esTx.BlockHash = receipt.BlockHash
 						esTx.BlockNumber = receipt.BlockNumber.String()
 						esTx.TransactionIndex = receipt.TransactionIndex
-						paramsStr, paramsErr := json.Marshal(esTx)
 						// 1559
 						if header.BaseFee != nil {
 							// 交易费
@@ -311,6 +311,7 @@ func Sync() {
 							transactionFee.Mul(tx.GasPrice(), new(big.Int).SetUint64(tx.Gas()))
 							esTx.TransactionFee = transactionFee.String()
 						}
+						paramsStr, paramsErr := json.Marshal(esTx)
 						if paramsErr != nil {
 							log.Logger.Error("序列化批量创建参数出错")
 							panic(paramsErr)
