@@ -33,11 +33,12 @@ type ESBlock struct {
 	Nonce       types.BlockNonce `json:"nonce"`
 
 	// BaseFee was added by EIP-1559 and is ignored in legacy headers.
-	BaseFee *big.Int `json:"baseFeePerGas" rlp:"optional"`
+	BaseFee string `json:"baseFeePerGas" rlp:"optional"`
 
 	Txns      int         `json:"txns"                  gencodec:"required"`
 	BlockHash common.Hash `json:"blockHash"             gencodec:"required"`
 	Size      string      `json:"size"                  gencodec:"required"`
+	BurntFees string      `json:"burntFees"                 `
 }
 
 type ESTx struct {
@@ -46,7 +47,7 @@ type ESTx struct {
 	GasPrice   string           `json:"gasPrice"                    gencodec:"required"`
 	GasTipCap  string           `json:"maxPriorityFeePerGas"        gencodec:"required"`
 	GasFeeCap  string           `json:"maxFeePerGas"                gencodec:"required"`
-	Gas        string           `json:"gas"                         gencodec:"required"`
+	Gas        string           `json:"gasLimit"                    gencodec:"required"`
 	Value      string           `json:"value"                       gencodec:"required"`
 	Data       []byte           `json:"input"                       gencodec:"required"`
 	Number     string           `json:"number"                      gencodec:"required"`
@@ -79,6 +80,10 @@ type ESTx struct {
 	BlockHash        common.Hash `json:"blockHash"`
 	BlockNumber      string      `json:"blockNumber"`
 	TransactionIndex uint        `json:"transactionIndex"`
+	TransactionFee   string      `json:"transactionFee"`
+	// 1559
+	BurntFees    string `json:"BurntFees"`
+	TxSavingsFee string `json:"txSavingsFee"`
 }
 
 type ESBlockHit1 struct {
@@ -175,7 +180,6 @@ func Sync() {
 				}
 				header := msg.Header()
 				body := msg.Body()
-
 				leng := len(body.Transactions)
 				// todo 为什么重新赋值一次 就会自动转成数字 直接使用header 就是hex
 				esBlock := new(ESBlock)
@@ -194,11 +198,17 @@ func Sync() {
 				esBlock.Extra = header.Extra
 				esBlock.MixDigest = header.MixDigest
 				esBlock.Nonce = header.Nonce
-				esBlock.BaseFee = header.BaseFee
+				esBlock.BaseFee = header.BaseFee.String()
 				esBlock.Txns = leng
 				esBlock.BlockHash = msg.Hash()
 				esBlock.Size = msg.Size().String()
-
+				if header.BaseFee != nil {
+					burntFees := new(big.Int)
+					burntFees.Mul(header.BaseFee, new(big.Int).SetUint64(header.GasUsed))
+					esBlock.BurntFees = burntFees.String()
+				} else {
+					// todo
+				}
 				blockBuf, err := json.Marshal(esBlock)
 				if err != nil {
 					log.Logger.Error("序列化block出错")
@@ -237,6 +247,7 @@ func Sync() {
 						txBuf.WriteByte('\n')
 						esTx := new(ESTx)
 						esTx.Type = tx.Type()
+
 						esTx.Nonce = new(big.Int).SetUint64(tx.Nonce()).String()
 						esTx.GasPrice = tx.GasPrice().String()
 						esTx.GasTipCap = tx.GasTipCap().String()
@@ -282,6 +293,23 @@ func Sync() {
 						esTx.BlockNumber = receipt.BlockNumber.String()
 						esTx.TransactionIndex = receipt.TransactionIndex
 						paramsStr, paramsErr := json.Marshal(esTx)
+						// 1559
+						if header.BaseFee != nil {
+							// 交易费
+							transactionFee := new(big.Int)
+							transactionFee.Mul(header.BaseFee, tx.GasTipCap())
+							esTx.TransactionFee = transactionFee.String()
+							// Savings Fees
+							txSavingsFee := new(big.Int)
+							txSavingsFee.Sub(tx.GasFeeCap(), tx.GasTipCap())
+							txSavingsFee.Sub(txSavingsFee, header.BaseFee)
+							txSavingsFee.Mul(transactionFee, new(big.Int).SetUint64(tx.Gas()))
+							esTx.TxSavingsFee = txSavingsFee.String()
+						} else {
+							transactionFee := new(big.Int)
+							transactionFee.Mul(tx.GasPrice(), new(big.Int).SetUint64(tx.Gas()))
+							esTx.TransactionFee = transactionFee.String()
+						}
 						if paramsErr != nil {
 							log.Logger.Error("序列化批量创建参数出错")
 							panic(paramsErr)
