@@ -306,6 +306,9 @@ func Sync() {
 							txSavingsFee.Sub(txSavingsFee, header.BaseFee)
 							txSavingsFee.Mul(transactionFee, new(big.Int).SetUint64(tx.Gas()))
 							esTx.TxSavingsFee = txSavingsFee.String()
+							burntFees := new(big.Int)
+							burntFees.Mul(header.BaseFee, new(big.Int).SetUint64(tx.Gas()))
+							esTx.BurntFees = burntFees.String()
 						} else {
 							transactionFee := new(big.Int)
 							transactionFee.Mul(tx.GasPrice(), new(big.Int).SetUint64(tx.Gas()))
