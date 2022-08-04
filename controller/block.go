@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"explorer/db"
@@ -74,20 +75,6 @@ func GetBlocks(c *gin.Context) {
 	if err2 != nil {
 		panic(err2)
 	}
-	// byt, err := io.ReadAll(res.Body)
-	// str := string(byt)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// if res.StatusCode > 300 {
-	// 	c.IndentedJSON(res.StatusCode, str)
-	// }
-	// fmt.Println(str)
-	// response := []byte(``)
-	// err = json.Unmarshal(response, &str)
-	// if err != nil {
-	// 	panic(err)
-	// }
 	c.IndentedJSON(res.StatusCode, response)
 }
 
@@ -96,19 +83,24 @@ func GetBlockByHash(c *gin.Context) {
 	if hash == "" {
 		c.IndentedJSON(http.StatusBadRequest, "")
 	}
-	body := `{
-		"query": {
-		  "term": {
-			"blockHash": {
-			  "value": "` + hash + `"
-			}
-		  }
-		}
-	  }
-	`
+	body := map[string]interface{}{
+		"query": map[string]interface{}{
+			"term": map[string]interface{}{
+				"blockHash": map[string]interface{}{
+					"value": hash,
+				},
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	err := json.NewEncoder(&buf).Encode(body)
+	if err != nil {
+		panic(err)
+	}
 	req := esapi.SearchRequest{
 		Index: []string{"block"},
-		Body:  strings.NewReader(body),
+		Body:  &buf,
 	}
 	res, err := req.Do(context.Background(), db.EsClient)
 	if err != nil {
@@ -116,9 +108,9 @@ func GetBlockByHash(c *gin.Context) {
 	}
 	defer res.Body.Close()
 	var response any
-	err2 := json.NewDecoder(res.Body).Decode(&response)
-	if err2 != nil {
-		panic(err2)
+	err = json.NewDecoder(res.Body).Decode(&response)
+	if err != nil {
+		panic(err)
 	}
 	c.IndentedJSON(res.StatusCode, response)
 }

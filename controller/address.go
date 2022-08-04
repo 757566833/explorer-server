@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"explorer/db"
@@ -8,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
-	"strings"
 )
 
 func GetAddress(c *gin.Context) {
@@ -29,34 +29,39 @@ func GetAddress(c *gin.Context) {
 		page = defaultPage
 	}
 	from := (page - 1) * size
-	_body := `{
-		"query": {
-		  "bool": {
-			"should": [
-			  {
-				"term": {
-				  "to": {
-					"value": "` + address + `"
-				  }
-				}
-			  },
-			  {
-				"term": {
-				  "from": {
-					"value": "` + address + `"
-				  }
-				}
-			  }
-			]
-		  }
-		}
-	  }`
-
+	body := map[string]interface{}{
+		"query": map[string]interface{}{
+			"bool": map[string]interface{}{
+				"should": [2]interface{}{
+					map[string]interface{}{
+						"term": map[string]interface{}{
+							"to": map[string]interface{}{
+								"value": address,
+							},
+						},
+					},
+					map[string]interface{}{
+						"term": map[string]interface{}{
+							"from": map[string]interface{}{
+								"value": address,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	
+	var buf bytes.Buffer
+	err = json.NewEncoder(&buf).Encode(body)
+	if err != nil {
+		panic(err)
+	}
 	req := esapi.SearchRequest{
 		Index: []string{"tx"},
 		Size:  &size,
 		From:  &from,
-		Body:  strings.NewReader(_body),
+		Body:  &buf,
 	}
 
 	res, err := req.Do(context.Background(), db.EsClient)
@@ -65,9 +70,9 @@ func GetAddress(c *gin.Context) {
 	}
 	defer res.Body.Close()
 	var response any
-	err2 := json.NewDecoder(res.Body).Decode(&response)
-	if err2 != nil {
-		panic(err2)
+	err = json.NewDecoder(res.Body).Decode(&response)
+	if err != nil {
+		panic(err)
 	}
 	// byt, err := io.ReadAll(res.Body)
 	// str := string(byt)

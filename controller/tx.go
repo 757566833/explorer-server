@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"explorer/db"
@@ -8,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
-	"strings"
 )
 
 func GetTx(c *gin.Context) {
@@ -32,7 +32,7 @@ func GetTx(c *gin.Context) {
 	}
 	c.IndentedJSON(res.StatusCode, response)
 }
-func GetTxs(c *gin.Context) {
+func GetBalanceTxs(c *gin.Context) {
 	blockStr := c.DefaultQuery("block", "")
 	defaultSize := 20
 	sizeStr := c.DefaultQuery("size", "20")
@@ -47,42 +47,56 @@ func GetTxs(c *gin.Context) {
 		page = defaultPage
 	}
 	from := (page - 1) * size
-
-	sort := `"sort": [
-		{
-		  "timestamp":{
-			"order": "desc"
-		  }
+	body := map[string]interface{}{}
+	if blockStr != "" {
+		body = map[string]interface{}{
+			"sort": [1]interface{}{
+				map[string]interface{}{
+					"timestamp": map[string]interface{}{
+						"order": "desc",
+					},
+				},
+			},
+			"query": map[string]interface{}{
+				"match": map[string]interface{}{
+					"number": blockStr,
+				},
+			},
 		}
-	  ]
-	`
-	query := `"query": {
-		"match": {
-		  "number": "` + blockStr + `"
-		}
-	  }
-	`
-	var body string
-	if blockStr == "" {
-		body = `{` + sort + `}`
 	} else {
-		body = `{` + query + "," + sort + `}`
+		body = map[string]interface{}{
+			"sort": [1]interface{}{
+				map[string]interface{}{
+					"timestamp": map[string]interface{}{
+						"order": "desc",
+					},
+				},
+			},
+			"query": map[string]interface{}{
+				"bool": map[string]interface{}{
+					"must": [1]interface{}{
+						map[string]interface{}{
+							"term": map[string]interface{}{
+								"contractAddress": map[string]interface{}{
+									"value": "0x0000000000000000000000000000000000000000",
+								},
+							},
+						},
+					},
+				},
+			},
+		}
 	}
-	// _body := `{
-	// 	"sort": [
-	// 	   {
-	// 		 "timestamp":{
-	// 		   "order": "desc"
-	// 		 }
-	// 	   }
-	// 	 ]
-	//    }`
-
+	var buf bytes.Buffer
+	err = json.NewEncoder(&buf).Encode(body)
+	if err != nil {
+		panic(err)
+	}
 	req := esapi.SearchRequest{
 		Index: []string{"tx"},
 		Size:  &size,
 		From:  &from,
-		Body:  strings.NewReader(body),
+		Body:  &buf,
 	}
 
 	res, err := req.Do(context.Background(), db.EsClient)
@@ -95,19 +109,67 @@ func GetTxs(c *gin.Context) {
 	if err2 != nil {
 		panic(err2)
 	}
-	// byt, err := io.ReadAll(res.Body)
-	// str := string(byt)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// if res.StatusCode > 300 {
-	// 	c.IndentedJSON(res.StatusCode, str)
-	// }
-	// fmt.Println(str)
-	// response := []byte(``)
-	// err = json.Unmarshal(response, &str)
-	// if err != nil {
-	// 	panic(err)
-	// }
+
 	c.IndentedJSON(res.StatusCode, response)
+}
+func GetContractDeploy(c *gin.Context) {
+	defaultSize := 20
+	sizeStr := c.DefaultQuery("size", "20")
+	size, err := strconv.Atoi(sizeStr)
+	if err != nil {
+		size = defaultSize
+	}
+	defaultPage := 1
+	pageStr := c.DefaultQuery("page", "1")
+	page, err := strconv.Atoi(pageStr)
+	if err != nil {
+		page = defaultPage
+	}
+	from := (page - 1) * size
+	body := map[string]interface{}{
+		"sort": [1]interface{}{
+			map[string]interface{}{
+				"timestamp": map[string]interface{}{
+					"order": "desc",
+				},
+			},
+		},
+		"query": map[string]interface{}{
+			"bool": map[string]interface{}{
+				"must_not": [1]interface{}{
+					map[string]interface{}{
+						"term": map[string]interface{}{
+							"contractAddress": map[string]interface{}{
+								"value": "0x0000000000000000000000000000000000000000",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	var buf bytes.Buffer
+	err = json.NewEncoder(&buf).Encode(body)
+	if err != nil {
+		panic(err)
+	}
+	req := esapi.SearchRequest{
+		Index: []string{"tx"},
+		Size:  &size,
+		From:  &from,
+		Body:  &buf,
+	}
+	res, err := req.Do(context.Background(), db.EsClient)
+	if err != nil {
+		panic(err)
+	}
+	defer res.Body.Close()
+	var response any
+	err2 := json.NewDecoder(res.Body).Decode(&response)
+	if err2 != nil {
+		panic(err2)
+	}
+
+	c.IndentedJSON(res.StatusCode, response)
+
 }
