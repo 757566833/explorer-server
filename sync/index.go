@@ -87,6 +87,14 @@ type ESTx struct {
 	TxSavingsFee string `json:"txSavingsFee"`
 }
 
+type ESContract struct {
+	Time            uint64         `json:"timestamp"                   gencodec:"required"`
+	Data            []byte         `json:"input"                       gencodec:"required"`
+	Hash            common.Hash    `json:"hash"                        gencodec:"required"`
+	ContractAddress common.Address `json:"contractAddress"`
+	BlockHash       common.Hash    `json:"blockHash"`
+	BlockNumber     string         `json:"blockNumber"`
+}
 type ESBlockHit1 struct {
 	Source ESBlock `json:"_source"                       gencodec:"required"`
 	Index  string  `json:"_index"                        gencodec:"required"`
@@ -114,6 +122,8 @@ type ESBlockRes struct {
 	Shards   ESShards    `json:"_shards"                       gencodec:"required"`
 	Hits     ESBlockHit2 `json:"hits"                       gencodec:"required"`
 }
+
+var emptyContractAddress = "0x0000000000000000000000000000000000000000"
 
 func Sync() {
 	if db.EsClient != nil && db.EthClient != nil {
@@ -231,6 +241,7 @@ func Sync() {
 
 				if leng > 0 {
 					txBuf := new(bytes.Buffer)
+					contractBuf := new(bytes.Buffer)
 					for _, tx := range body.Transactions {
 
 						createLine := map[string]interface{}{
@@ -259,6 +270,7 @@ func Sync() {
 						esTx.Number = header.Number.String()
 						esTx.To = tx.To()
 						esTx.Hash = tx.Hash()
+
 						v, r, s := tx.RawSignatureValues()
 						esTx.V = v.String()
 						esTx.R = r.String()
@@ -322,6 +334,36 @@ func Sync() {
 						txBuf.Write(paramsStr)
 						txBuf.WriteByte('\n')
 
+						if receipt.ContractAddress.String() != emptyContractAddress {
+							createContract := map[string]interface{}{
+								"create": map[string]interface{}{
+									"_index": "contract",
+									"_id":    receipt.ContractAddress.String(),
+								},
+							}
+							createContractStr, createContractErr := json.Marshal(createContract)
+							if createContractErr != nil {
+								log.Logger.Error("序列化批量创建方法出错")
+								panic(createContractErr)
+							}
+							contractBuf.Write(createContractStr)
+							contractBuf.WriteByte('\n')
+							esContract := new(ESContract)
+							esContract.ContractAddress = receipt.ContractAddress
+							esContract.Hash = tx.Hash()
+							esContract.BlockHash = receipt.BlockHash
+							esContract.Data = tx.Data()
+							esContract.Time = header.Time
+							esContract.BlockNumber = receipt.BlockNumber.String()
+							contractStr, contractStrErr := json.Marshal(esContract)
+							if contractStrErr != nil {
+								log.Logger.Error("序列化批量创建参数出错")
+								panic(contractStrErr)
+							}
+							contractBuf.Write(contractStr)
+							contractBuf.WriteByte('\n')
+						}
+
 					}
 
 					txReq := esapi.BulkRequest{
@@ -335,7 +377,23 @@ func Sync() {
 					}
 					defer txRes.Body.Close()
 					if txRes.StatusCode >= 300 {
-						log.Logger.Error("批量写入http返回报错")
+						log.Logger.Error("tx批量写入http返回报错")
+					}
+
+					if contractBuf.Len() != 0 {
+						contractReq := esapi.BulkRequest{
+							Body: bytes.NewReader(contractBuf.Bytes()),
+						}
+						contractRes, contractErr := contractReq.Do(context.Background(), db.EsClient)
+
+						if contractErr != nil {
+							log.Logger.Error("批量写入contract出错")
+							panic(contractErr)
+						}
+						defer contractRes.Body.Close()
+						if contractRes.StatusCode >= 300 {
+							log.Logger.Error("contract批量写入http返回报错")
+						}
 					}
 
 				}

@@ -40,6 +40,7 @@ func InitEsClient() {
 			log.Fatalf("Error create the block index: %s", err)
 		}
 	}
+	defer blockResponse.Body.Close()
 	txResponse, err := ec.Indices.Exists([]string{"tx"})
 	if err != nil {
 		log.Fatalf("Error exists the tx index: %s", err)
@@ -53,4 +54,20 @@ func InitEsClient() {
 			log.Fatalf("Error create the tx index: %s", err)
 		}
 	}
+	defer txResponse.Body.Close()
+
+	contractResponse, err := ec.Indices.Exists([]string{"contract"})
+	if err != nil {
+		log.Fatalf("Error exists the tx index: %s", err)
+	}
+	if contractResponse.StatusCode == 404 {
+		var createIndexResponse, err = ec.Indices.Create("contract")
+		if err != nil {
+			log.Fatalf("Error create the tx index: %s", err)
+		}
+		if createIndexResponse.IsError() {
+			log.Fatalf("Error create the tx index: %s", err)
+		}
+	}
+	defer contractResponse.Body.Close()
 }

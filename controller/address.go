@@ -50,8 +50,15 @@ func GetAddress(c *gin.Context) {
 				},
 			},
 		},
+		"sort": [1]interface{}{
+			map[string]interface{}{
+				"timestamp": map[string]interface{}{
+					"order": "desc",
+				},
+			},
+		},
 	}
-	
+
 	var buf bytes.Buffer
 	err = json.NewEncoder(&buf).Encode(body)
 	if err != nil {
