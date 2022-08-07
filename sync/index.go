@@ -69,6 +69,7 @@ type ESTx struct {
 	CumulativeGasUsed string       `json:"cumulativeGasUsed"       gencodec:"required"`
 	Bloom             types.Bloom  `json:"logsBloom"               gencodec:"required"`
 	Logs              []*types.Log `json:"logs"                    gencodec:"required"`
+	LogLength         string       `json:"logLength"               gencodec:"required"`
 
 	// Implementation fields: These fields are added by geth when processing a transaction.
 	// They are stored in the chain database.
@@ -88,6 +89,7 @@ type ESTx struct {
 }
 
 type ESContract struct {
+	From            common.Address `json:"from"                        gencodec:"required"`
 	Time            uint64         `json:"timestamp"                   gencodec:"required"`
 	Data            []byte         `json:"input"                       gencodec:"required"`
 	Hash            common.Hash    `json:"hash"                        gencodec:"required"`
@@ -299,6 +301,7 @@ func Sync() {
 						esTx.CumulativeGasUsed = new(big.Int).SetUint64(receipt.CumulativeGasUsed).String()
 						esTx.Bloom = receipt.Bloom
 						esTx.Logs = receipt.Logs
+						esTx.LogLength = string(len(receipt.Logs))
 						esTx.TxHash = receipt.TxHash
 						esTx.ContractAddress = receipt.ContractAddress
 						esTx.GasUsed = new(big.Int).SetUint64(receipt.GasUsed).String()
