@@ -56,12 +56,12 @@ func InitEsClient() {
 	}
 	defer txResponse.Body.Close()
 
-	contractResponse, err := ec.Indices.Exists([]string{"contract"})
+	addressResponse, err := ec.Indices.Exists([]string{"address"})
 	if err != nil {
 		log.Fatalf("Error exists the tx index: %s", err)
 	}
-	if contractResponse.StatusCode == 404 {
-		var createIndexResponse, err = ec.Indices.Create("contract")
+	if addressResponse.StatusCode == 404 {
+		var createIndexResponse, err = ec.Indices.Create("address")
 		if err != nil {
 			log.Fatalf("Error create the tx index: %s", err)
 		}
@@ -69,5 +69,39 @@ func InitEsClient() {
 			log.Fatalf("Error create the tx index: %s", err)
 		}
 	}
-	defer contractResponse.Body.Close()
+	defer addressResponse.Body.Close()
+}
+
+type Shards struct {
+	Total uint64 `json:"total"`
+	// todo
+	//Successful uint64 `json:"successful"`
+	//skipped
+	//"failed" : 0
+}
+type Hits1Total struct {
+	Value    uint64 `json:"value"`
+	Relation string `json:"relation"`
+}
+type Hits2 struct {
+	Index  string  `json:"_index"`
+	Type   string  `json:"_type"`
+	Id     string  `json:"_id"`
+	Score  float32 `json:"_score"`
+	Source string  `json:"_source"`
+}
+type Hits1 struct {
+	Total Hits1Total `json:"total"`
+	// todo
+	MaxScore float32 `json:"max_score"`
+	//Successful uint64 `json:"successful"`
+	//skipped
+	//"failed" : 0
+	Hits []Hits2 `json:"hits"`
+}
+type EsSearchResponse struct {
+	Took    uint64 `json:"took"`
+	TimeOut bool   `json:"time_out"`
+	Shards  Shards `json:"_shards"`
+	Hits    Hits1  `json:"hits"`
 }

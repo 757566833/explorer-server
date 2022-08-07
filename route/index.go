@@ -27,9 +27,9 @@ func InitRouter() *gin.Engine {
 	router.GET("/tx/:tx", controller.GetTx)
 	router.GET("/blocks", controller.GetBlocks)
 	router.GET("/txs", controller.GetTxs)
-	router.GET("/contract/:contract", controller.GetContract)
 	router.GET("/contracts", controller.GetContracts)
-	router.GET("/address/:address", controller.GetAddress)
+	router.GET("/contract/txs", controller.GetContractTxs)
+	router.GET("/address/:address", controller.GetTxByAddress)
 	router.GET("/block/hash/:hash", controller.GetBlockByHash)
 	return router
 }

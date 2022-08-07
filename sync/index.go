@@ -4,13 +4,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"explorer/db"
 	"explorer/log"
+	"fmt"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"io"
 	"math/big"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -69,13 +73,13 @@ type ESTx struct {
 	CumulativeGasUsed string       `json:"cumulativeGasUsed"       gencodec:"required"`
 	Bloom             types.Bloom  `json:"logsBloom"               gencodec:"required"`
 	Logs              []*types.Log `json:"logs"                    gencodec:"required"`
-	LogLength         string       `json:"logLength"               gencodec:"required"`
+	LogLength         uint64       `json:"logLength"               gencodec:"required"`
 
 	// Implementation fields: These fields are added by geth when processing a transaction.
 	// They are stored in the chain database.
-	TxHash          common.Hash    `json:"transactionHash"         gencodec:"required"`
-	ContractAddress common.Address `json:"contractAddress"`
-	GasUsed         string         `json:"gasUsed"                 gencodec:"required"`
+	TxHash          common.Hash     `json:"transactionHash"         gencodec:"required"`
+	ContractAddress *common.Address `json:"contractAddress"`
+	GasUsed         string          `json:"gasUsed"                 gencodec:"required"`
 
 	// Inclusion information: These fields provide information about the inclusion of the
 	// transaction corresponding to this receipt.
@@ -88,14 +92,9 @@ type ESTx struct {
 	TxSavingsFee string `json:"txSavingsFee"`
 }
 
-type ESContract struct {
-	From            common.Address `json:"from"                        gencodec:"required"`
-	Time            uint64         `json:"timestamp"                   gencodec:"required"`
-	Data            []byte         `json:"input"                       gencodec:"required"`
-	Hash            common.Hash    `json:"hash"                        gencodec:"required"`
-	ContractAddress common.Address `json:"contractAddress"`
-	BlockHash       common.Hash    `json:"blockHash"`
-	BlockNumber     string         `json:"blockNumber"`
+type ESAddress struct {
+	address string `json:"address"                        gencodec:"required"`
+	Type    uint8  `json:"type"  gencodec:"required"`
 }
 type ESBlockHit1 struct {
 	Source ESBlock `json:"_source"                       gencodec:"required"`
@@ -127,10 +126,11 @@ type ESBlockRes struct {
 
 var emptyContractAddress = "0x0000000000000000000000000000000000000000"
 
-func Sync() {
-	if db.EsClient != nil && db.EthClient != nil {
-		var startStr = "0"
+var searchBlock = []string{"block"}
 
+func getEsLastBlockNumber() (string, error) {
+	if db.EsClient != nil {
+		var startStr = "0"
 		size := 1
 		from := 0
 		_body := `{
@@ -143,7 +143,7 @@ func Sync() {
 		 ]
 	   }`
 		blockReq := esapi.SearchRequest{
-			Index: []string{"block"},
+			Index: searchBlock,
 			Size:  &size,
 			From:  &from,
 			Body:  strings.NewReader(_body),
@@ -159,7 +159,7 @@ func Sync() {
 			byt, err := io.ReadAll(esBlockResponse.Body)
 
 			if err != nil {
-				panic(err)
+				return "", errors.New("查询block失败")
 			}
 			var esBlockRes ESBlockRes
 			err = json.Unmarshal(byt, &esBlockRes)
@@ -170,237 +170,403 @@ func Sync() {
 			}
 
 		}
+		return startStr, nil
+	} else {
+		return "", errors.New("es数据库未连接")
+	}
+
+}
+func getRpcLastBlockNumber() (*big.Int, error) {
+	if db.EthClient != nil {
 		num, err := db.EthClient.BlockNumber(context.Background())
-		if err != nil {
-			log.Logger.Error("区块链获取最新区块报错")
-			panic(err)
-		}
 		length := new(big.Int).SetUint64(num)
-		length.Sub(length, big.NewInt(1))
-		var startBg *big.Int
-		var b bool
-		startBg, b = new(big.Int).SetString(startStr, 10)
+		return length, err
+	} else {
+		return nil, errors.New("rpc未连接")
+	}
+}
+func buildEsBlock(block *types.Block) *ESBlock {
+	header := block.Header()
+	body := block.Body()
+	txLength := len(body.Transactions)
+	esBlock := new(ESBlock)
+	esBlock.ParentHash = header.ParentHash
+	esBlock.UncleHash = header.UncleHash
+	esBlock.Coinbase = header.Coinbase
+	esBlock.Root = header.Root
+	esBlock.TxHash = header.TxHash
+	esBlock.ReceiptHash = header.ReceiptHash
+	esBlock.Bloom = header.Bloom
+	esBlock.Difficulty = header.Difficulty.String()
+	esBlock.Number = header.Number.String()
+	esBlock.GasLimit = new(big.Int).SetUint64(header.GasLimit).String()
+	esBlock.GasUsed = new(big.Int).SetUint64(header.GasUsed).String()
+	esBlock.Time = header.Time
+	esBlock.Extra = header.Extra
+	esBlock.MixDigest = header.MixDigest
+	esBlock.Nonce = header.Nonce
+	esBlock.BaseFee = header.BaseFee.String()
+	esBlock.Txns = txLength
+	esBlock.BlockHash = block.Hash()
+	esBlock.Size = block.Size().String()
+	//1559
+	if header.BaseFee != nil {
+		burntFees := new(big.Int)
+		burntFees.Mul(header.BaseFee, new(big.Int).SetUint64(header.GasUsed))
+		esBlock.BurntFees = burntFees.String()
+	} else {
+		// todo
+	}
+	return esBlock
+}
+func createEsBlock(block *ESBlock) error {
+	blockBuf, err := json.Marshal(block)
+	if err != nil {
+		log.Logger.Error("序列化block出错")
+		return err
+	}
+
+	blockReq := esapi.IndexRequest{
+		Index:      "block",
+		DocumentID: block.Number,
+		Body:       bytes.NewReader(blockBuf),
+	}
+
+	blockRes, blockErr := blockReq.Do(context.Background(), db.EsClient)
+	if blockErr != nil {
+		log.Logger.Error("es写入block出错")
+		return err
+	}
+	defer blockRes.Body.Close()
+	if blockRes.StatusCode >= 300 {
+		log.Logger.Error("http:es写入block出错")
+		return errors.New("http:es写入block出错")
+	}
+	return nil
+}
+func buildTx(tx *types.Transaction, header *types.Header) (*ESTx, error) {
+	esTx := new(ESTx)
+	esTx.Type = tx.Type()
+
+	esTx.Nonce = new(big.Int).SetUint64(tx.Nonce()).String()
+	esTx.GasPrice = tx.GasPrice().String()
+	esTx.GasTipCap = tx.GasTipCap().String()
+	esTx.GasFeeCap = tx.GasFeeCap().String()
+	esTx.Gas = new(big.Int).SetUint64(tx.Gas()).String()
+	esTx.Value = tx.Value().String()
+	esTx.Data = tx.Data()
+	esTx.Number = header.Number.String()
+	esTx.To = tx.To()
+	esTx.Hash = tx.Hash()
+
+	v, r, s := tx.RawSignatureValues()
+	esTx.V = v.String()
+	esTx.R = r.String()
+	esTx.S = s.String()
+	esTx.Time = header.Time
+	esTx.BaseFee = header.BaseFee.String()
+	msg, err := tx.AsMessage(types.LatestSignerForChainID(tx.ChainId()), tx.GasPrice())
+	if err != nil {
+		log.Logger.Error("as message 出错")
+		return nil, err
+	}
+
+	esTx.IsFake = msg.IsFake()
+	esTx.AccessList = msg.AccessList()
+	esTx.From = msg.From()
+	receipt, err := db.EthClient.TransactionReceipt(context.Background(), tx.Hash())
+	if err != nil {
+		log.Logger.Error("as message 出错")
+		return nil, err
+	}
+	esTx.ReceiptType = receipt.Type
+	esTx.PostState = receipt.PostState
+	esTx.Status = new(big.Int).SetUint64(receipt.Status).String()
+	esTx.CumulativeGasUsed = new(big.Int).SetUint64(receipt.CumulativeGasUsed).String()
+	esTx.Bloom = receipt.Bloom
+	esTx.Logs = receipt.Logs
+	esTx.LogLength = uint64(len(receipt.Logs))
+	esTx.TxHash = receipt.TxHash
+
+	esTx.GasUsed = new(big.Int).SetUint64(receipt.GasUsed).String()
+	esTx.BlockHash = receipt.BlockHash
+	esTx.BlockNumber = receipt.BlockNumber.String()
+	esTx.TransactionIndex = receipt.TransactionIndex
+	// 1559
+	if header.BaseFee != nil {
+		// 交易费
+		transactionFee := new(big.Int)
+		transactionFee.Add(header.BaseFee, tx.GasTipCap())
+		transactionFee.Mul(transactionFee, new(big.Int).SetUint64(tx.Gas()))
+		esTx.TransactionFee = transactionFee.String()
+		// Savings Fees
+		txSavingsFee := new(big.Int)
+		txSavingsFee.Sub(tx.GasFeeCap(), tx.GasTipCap())
+		txSavingsFee.Sub(txSavingsFee, header.BaseFee)
+		txSavingsFee.Mul(transactionFee, new(big.Int).SetUint64(tx.Gas()))
+		esTx.TxSavingsFee = txSavingsFee.String()
+		burntFees := new(big.Int)
+		burntFees.Mul(header.BaseFee, new(big.Int).SetUint64(tx.Gas()))
+		esTx.BurntFees = burntFees.String()
+	} else {
+		transactionFee := new(big.Int)
+		transactionFee.Mul(tx.GasPrice(), new(big.Int).SetUint64(tx.Gas()))
+		esTx.TransactionFee = transactionFee.String()
+	}
+	fmt.Println(receipt.ContractAddress.String())
+	fmt.Println(emptyContractAddress)
+	fmt.Println(strconv.FormatBool(receipt.ContractAddress.String() == emptyContractAddress))
+	if receipt.ContractAddress.String() != emptyContractAddress {
+		esTx.ContractAddress = &receipt.ContractAddress
+	}
+	return esTx, nil
+}
+func buildAddress(address string, _type uint8) *ESAddress {
+	esAddress := new(ESAddress)
+	esAddress.Type = _type
+	esAddress.address = address
+
+	return esAddress
+}
+func bulkBuildTx(block *types.Block) (*bytes.Buffer, []string, []string, error) {
+
+	body := block.Body()
+	header := block.Header()
+	length := len(body.Transactions)
+	var contractArray []string
+	var addressArray []string
+	if length > 0 {
+		// 创建tx的body
+		txBuf := new(bytes.Buffer)
+		// 创建address的body
+		//addressBuf := new(bytes.Buffer)
+		for _, tx := range body.Transactions {
+			createLine := map[string]interface{}{
+				"create": map[string]interface{}{
+					"_index": "tx",
+					"_id":    tx.Hash(),
+				},
+			}
+			createStr, err := json.Marshal(createLine)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			txBuf.Write(createStr)
+			txBuf.WriteByte('\n')
+			esTx, err := buildTx(tx, header)
+			addressArray = append(addressArray, esTx.From.String())
+			addressArray = append(addressArray, esTx.To.String())
+			if esTx.ContractAddress != nil && esTx.ContractAddress.String() != emptyContractAddress {
+				contractArray = append(contractArray, esTx.ContractAddress.String())
+			}
+
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			paramsStr, paramsErr := json.Marshal(esTx)
+			if paramsErr != nil {
+				log.Logger.Error("序列化批量创建参数出错")
+				return nil, nil, nil, err
+			}
+			txBuf.Write(paramsStr)
+			txBuf.WriteByte('\n')
+		}
+		return txBuf, addressArray, contractArray, nil
+	} else {
+
+		return nil, addressArray, contractArray, nil
+	}
+}
+func bulkBuildAddress(address map[string]bool, contract map[string]bool) (*bytes.Buffer, error) {
+	addressBuf := new(bytes.Buffer)
+	for _address, bool := range address {
+		if bool {
+			createLine := map[string]interface{}{
+				"create": map[string]interface{}{
+					"_index": "address",
+					"_id":    _address,
+				},
+			}
+			createStr, err := json.Marshal(createLine)
+			if err != nil {
+				return nil, err
+			}
+
+			addressBuf.Write(createStr)
+			addressBuf.WriteByte('\n')
+			esAddress := buildAddress(_address, 1)
+			paramsStr, paramsErr := json.Marshal(esAddress)
+			if paramsErr != nil {
+				log.Logger.Error("序列化批量创建参数出错")
+				return nil, err
+			}
+			addressBuf.Write(paramsStr)
+			addressBuf.WriteByte('\n')
+		}
+	}
+
+	for _contract, bool := range contract {
+		if bool {
+			createLine := map[string]interface{}{
+				"create": map[string]interface{}{
+					"_index": "address",
+					"_id":    _contract,
+				},
+			}
+			createStr, err := json.Marshal(createLine)
+			if err != nil {
+				return nil, err
+			}
+
+			addressBuf.Write(createStr)
+			addressBuf.WriteByte('\n')
+			esAddress := buildAddress(_contract, 2)
+			paramsStr, paramsErr := json.Marshal(esAddress)
+			if paramsErr != nil {
+				log.Logger.Error("序列化批量创建参数出错")
+				return nil, err
+			}
+			addressBuf.Write(paramsStr)
+			addressBuf.WriteByte('\n')
+		}
+	}
+
+	return addressBuf, nil
+
+}
+
+func bulkCreate(buf *bytes.Buffer) (string, error) {
+	if buf != nil && buf.Len() > 0 {
+
+		req := esapi.BulkRequest{
+			Body: bytes.NewReader(buf.Bytes()),
+		}
+		res, err := req.Do(context.Background(), db.EsClient)
+
+		if err != nil {
+			log.Logger.Error("批量写入tx出错")
+			return "", err
+		}
+		defer res.Body.Close()
+		if res.StatusCode >= 300 {
+			log.Logger.Error("批量写入http返回报错")
+			return "", errors.New("批量写入http返回报错")
+		} else {
+			return "", nil
+		}
+	}
+	return "", nil
+}
+func getAddressListByList(list []string) (*db.EsSearchResponse, error) {
+	body := map[string]interface{}{
+		"query": map[string]interface{}{
+			"ids": map[string]interface{}{
+				"values": list,
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	err := json.NewEncoder(&buf).Encode(body)
+	if err != nil {
+		return nil, err
+	}
+	listReq := esapi.SearchRequest{
+		Index: []string{"address"},
+		Body:  &buf,
+	}
+	res, err := listReq.Do(context.Background(), db.EsClient)
+	defer res.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	var response db.EsSearchResponse
+	err = json.NewDecoder(res.Body).Decode(&response)
+	if err != nil {
+		return nil, err
+	}
+	return &response, nil
+
+}
+
+func Sync() {
+	if db.EsClient != nil && db.EthClient != nil {
+		// 获取 数据库的最后一个块
+		startStr, err := getEsLastBlockNumber()
+		if err != nil {
+			log.Logger.Error(err.Error())
+			os.Exit(1)
+		}
+		// 获取区块链的最后一个块
+		length, err := getRpcLastBlockNumber()
+		if err != nil {
+			log.Logger.Error(err.Error())
+			os.Exit(1)
+		}
+		startBg, b := new(big.Int).SetString(startStr, 10)
 		if !b {
 			startBg = big.NewInt(0)
 		}
+		// 如果数据库比区块链小，就开始更新
 		for i := startBg; i.Cmp(length) == -1; i.Add(i, big.NewInt(1)) {
-			func(i *big.Int) {
-				log.Logger.Info(i.String())
-				msg, err := db.EthClient.BlockByNumber(context.Background(), i)
+			log.Logger.Info(i.String())
+			block, err := db.EthClient.BlockByNumber(context.Background(), i)
+			if err != nil {
+				log.Logger.Error("获取区块信息出错")
+				os.Exit(1)
+			}
+			// 存储block
+			esBlock := buildEsBlock(block)
+			err = createEsBlock(esBlock)
+			if err != nil {
+				os.Exit(1)
+			}
+			txBuf, address, contract, err := bulkBuildTx(block)
+
+			if err != nil {
+				os.Exit(1)
+			}
+
+			if txBuf != nil {
+
+				_, err = bulkCreate(txBuf)
 				if err != nil {
-					log.Logger.Error("获取区块信息出错")
-					panic(err)
+					os.Exit(1)
 				}
-				header := msg.Header()
-				body := msg.Body()
-				leng := len(body.Transactions)
-				// todo 为什么重新赋值一次 就会自动转成数字 直接使用header 就是hex
-				esBlock := new(ESBlock)
-				esBlock.ParentHash = header.ParentHash
-				esBlock.UncleHash = header.UncleHash
-				esBlock.Coinbase = header.Coinbase
-				esBlock.Root = header.Root
-				esBlock.TxHash = header.TxHash
-				esBlock.ReceiptHash = header.ReceiptHash
-				esBlock.Bloom = header.Bloom
-				esBlock.Difficulty = header.Difficulty.String()
-				esBlock.Number = header.Number.String()
-				esBlock.GasLimit = new(big.Int).SetUint64(header.GasLimit).String()
-				esBlock.GasUsed = new(big.Int).SetUint64(header.GasUsed).String()
-				esBlock.Time = header.Time
-				esBlock.Extra = header.Extra
-				esBlock.MixDigest = header.MixDigest
-				esBlock.Nonce = header.Nonce
-				esBlock.BaseFee = header.BaseFee.String()
-				esBlock.Txns = leng
-				esBlock.BlockHash = msg.Hash()
-				esBlock.Size = msg.Size().String()
-				if header.BaseFee != nil {
-					burntFees := new(big.Int)
-					burntFees.Mul(header.BaseFee, new(big.Int).SetUint64(header.GasUsed))
-					esBlock.BurntFees = burntFees.String()
-				} else {
-					// todo
+			}
+
+			allAddress := append(address, contract...)
+			res, err := getAddressListByList(allAddress)
+			if err != nil {
+				os.Exit(1)
+			}
+			addressMap := map[string]bool{}
+			for _, _address := range address {
+				addressMap[_address] = true
+			}
+			contractMap := map[string]bool{}
+			for _, _contract := range contract {
+				contractMap[_contract] = true
+			}
+			for _, hit := range res.Hits.Hits {
+				if addressMap[hit.Id] {
+					addressMap[hit.Id] = false
 				}
-				blockBuf, err := json.Marshal(esBlock)
+				if contractMap[hit.Id] {
+					contractMap[hit.Id] = false
+				}
+			}
+			addressBuf, err := bulkBuildAddress(addressMap, contractMap)
+			if err != nil {
+				os.Exit(1)
+			}
+
+			if addressBuf != nil && addressBuf.Len() > 0 {
+				_, err = bulkCreate(addressBuf)
 				if err != nil {
-					log.Logger.Error("序列化block出错")
-					panic(err)
+					os.Exit(1)
 				}
-
-				blockReq := esapi.IndexRequest{
-					Index:      "block",
-					DocumentID: header.Number.String(),
-					Body:       bytes.NewReader(blockBuf),
-				}
-
-				blockRes, blockErr := blockReq.Do(context.Background(), db.EsClient)
-				if blockErr != nil {
-					log.Logger.Error("es写入出错")
-					panic(blockErr)
-				}
-				defer blockRes.Body.Close()
-
-				if leng > 0 {
-					txBuf := new(bytes.Buffer)
-					contractBuf := new(bytes.Buffer)
-					for _, tx := range body.Transactions {
-
-						createLine := map[string]interface{}{
-							"create": map[string]interface{}{
-								"_index": "tx",
-								"_id":    tx.Hash(),
-							},
-						}
-						createStr, createErr := json.Marshal(createLine)
-						if createErr != nil {
-							log.Logger.Error("序列化批量创建方法出错")
-							panic(createErr)
-						}
-						txBuf.Write(createStr)
-						txBuf.WriteByte('\n')
-						esTx := new(ESTx)
-						esTx.Type = tx.Type()
-
-						esTx.Nonce = new(big.Int).SetUint64(tx.Nonce()).String()
-						esTx.GasPrice = tx.GasPrice().String()
-						esTx.GasTipCap = tx.GasTipCap().String()
-						esTx.GasFeeCap = tx.GasFeeCap().String()
-						esTx.Gas = new(big.Int).SetUint64(tx.Gas()).String()
-						esTx.Value = tx.Value().String()
-						esTx.Data = tx.Data()
-						esTx.Number = header.Number.String()
-						esTx.To = tx.To()
-						esTx.Hash = tx.Hash()
-
-						v, r, s := tx.RawSignatureValues()
-						esTx.V = v.String()
-						esTx.R = r.String()
-						esTx.S = s.String()
-						esTx.Time = header.Time
-						esTx.BaseFee = header.BaseFee.String()
-						msg, asMsgErr := tx.AsMessage(types.LatestSignerForChainID(tx.ChainId()), tx.GasPrice())
-						if asMsgErr != nil {
-							log.Logger.Error("as message 出错")
-							panic(asMsgErr)
-						}
-
-						esTx.IsFake = msg.IsFake()
-						esTx.AccessList = msg.AccessList()
-						esTx.From = msg.From()
-
-						receipt, receiptErr := db.EthClient.TransactionReceipt(context.Background(), tx.Hash())
-						if receiptErr != nil {
-							log.Logger.Error("as message 出错")
-							panic(receiptErr)
-						}
-
-						esTx.ReceiptType = receipt.Type
-						esTx.PostState = receipt.PostState
-						esTx.Status = new(big.Int).SetUint64(receipt.Status).String()
-						esTx.CumulativeGasUsed = new(big.Int).SetUint64(receipt.CumulativeGasUsed).String()
-						esTx.Bloom = receipt.Bloom
-						esTx.Logs = receipt.Logs
-						esTx.LogLength = string(len(receipt.Logs))
-						esTx.TxHash = receipt.TxHash
-						esTx.ContractAddress = receipt.ContractAddress
-						esTx.GasUsed = new(big.Int).SetUint64(receipt.GasUsed).String()
-						esTx.BlockHash = receipt.BlockHash
-						esTx.BlockNumber = receipt.BlockNumber.String()
-						esTx.TransactionIndex = receipt.TransactionIndex
-						// 1559
-						if header.BaseFee != nil {
-							// 交易费
-							transactionFee := new(big.Int)
-							transactionFee.Add(header.BaseFee, tx.GasTipCap())
-							transactionFee.Mul(transactionFee, new(big.Int).SetUint64(tx.Gas()))
-							esTx.TransactionFee = transactionFee.String()
-							// Savings Fees
-							txSavingsFee := new(big.Int)
-							txSavingsFee.Sub(tx.GasFeeCap(), tx.GasTipCap())
-							txSavingsFee.Sub(txSavingsFee, header.BaseFee)
-							txSavingsFee.Mul(transactionFee, new(big.Int).SetUint64(tx.Gas()))
-							esTx.TxSavingsFee = txSavingsFee.String()
-							burntFees := new(big.Int)
-							burntFees.Mul(header.BaseFee, new(big.Int).SetUint64(tx.Gas()))
-							esTx.BurntFees = burntFees.String()
-						} else {
-							transactionFee := new(big.Int)
-							transactionFee.Mul(tx.GasPrice(), new(big.Int).SetUint64(tx.Gas()))
-							esTx.TransactionFee = transactionFee.String()
-						}
-						paramsStr, paramsErr := json.Marshal(esTx)
-						if paramsErr != nil {
-							log.Logger.Error("序列化批量创建参数出错")
-							panic(paramsErr)
-						}
-						txBuf.Write(paramsStr)
-						txBuf.WriteByte('\n')
-
-						if receipt.ContractAddress.String() != emptyContractAddress {
-							createContract := map[string]interface{}{
-								"create": map[string]interface{}{
-									"_index": "contract",
-									"_id":    receipt.ContractAddress.String(),
-								},
-							}
-							createContractStr, createContractErr := json.Marshal(createContract)
-							if createContractErr != nil {
-								log.Logger.Error("序列化批量创建方法出错")
-								panic(createContractErr)
-							}
-							contractBuf.Write(createContractStr)
-							contractBuf.WriteByte('\n')
-							esContract := new(ESContract)
-							esContract.ContractAddress = receipt.ContractAddress
-							esContract.Hash = tx.Hash()
-							esContract.BlockHash = receipt.BlockHash
-							esContract.Data = tx.Data()
-							esContract.Time = header.Time
-							esContract.BlockNumber = receipt.BlockNumber.String()
-							contractStr, contractStrErr := json.Marshal(esContract)
-							if contractStrErr != nil {
-								log.Logger.Error("序列化批量创建参数出错")
-								panic(contractStrErr)
-							}
-							contractBuf.Write(contractStr)
-							contractBuf.WriteByte('\n')
-						}
-
-					}
-
-					txReq := esapi.BulkRequest{
-						Body: bytes.NewReader(txBuf.Bytes()),
-					}
-					txRes, txErr := txReq.Do(context.Background(), db.EsClient)
-
-					if txErr != nil {
-						log.Logger.Error("批量写入tx出错")
-						panic(txErr)
-					}
-					defer txRes.Body.Close()
-					if txRes.StatusCode >= 300 {
-						log.Logger.Error("tx批量写入http返回报错")
-					}
-
-					if contractBuf.Len() != 0 {
-						contractReq := esapi.BulkRequest{
-							Body: bytes.NewReader(contractBuf.Bytes()),
-						}
-						contractRes, contractErr := contractReq.Do(context.Background(), db.EsClient)
-
-						if contractErr != nil {
-							log.Logger.Error("批量写入contract出错")
-							panic(contractErr)
-						}
-						defer contractRes.Body.Close()
-						if contractRes.StatusCode >= 300 {
-							log.Logger.Error("contract批量写入http返回报错")
-						}
-					}
-
-				}
-			}(i)
+			}
 
 		}
 	}
