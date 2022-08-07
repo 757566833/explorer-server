@@ -84,11 +84,11 @@ type Hits1Total struct {
 	Relation string `json:"relation"`
 }
 type Hits2 struct {
-	Index  string  `json:"_index"`
-	Type   string  `json:"_type"`
-	Id     string  `json:"_id"`
-	Score  float32 `json:"_score"`
-	Source string  `json:"_source"`
+	Index  string                 `json:"_index"`
+	Type   string                 `json:"_type"`
+	Id     string                 `json:"_id"`
+	Score  float32                `json:"_score"`
+	Source map[string]interface{} `json:"_source"`
 }
 type Hits1 struct {
 	Total Hits1Total `json:"total"`

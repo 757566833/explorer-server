@@ -7,14 +7,12 @@ import (
 	"errors"
 	"explorer/db"
 	"explorer/log"
-	"fmt"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"io"
 	"math/big"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -222,7 +220,6 @@ func buildEsBlock(block *types.Block) *ESBlock {
 func createEsBlock(block *ESBlock) error {
 	blockBuf, err := json.Marshal(block)
 	if err != nil {
-		log.Logger.Error("序列化block出错")
 		return err
 	}
 
@@ -234,12 +231,10 @@ func createEsBlock(block *ESBlock) error {
 
 	blockRes, blockErr := blockReq.Do(context.Background(), db.EsClient)
 	if blockErr != nil {
-		log.Logger.Error("es写入block出错")
 		return err
 	}
 	defer blockRes.Body.Close()
 	if blockRes.StatusCode >= 300 {
-		log.Logger.Error("http:es写入block出错")
 		return errors.New("http:es写入block出错")
 	}
 	return nil
@@ -267,7 +262,6 @@ func buildTx(tx *types.Transaction, header *types.Header) (*ESTx, error) {
 	esTx.BaseFee = header.BaseFee.String()
 	msg, err := tx.AsMessage(types.LatestSignerForChainID(tx.ChainId()), tx.GasPrice())
 	if err != nil {
-		log.Logger.Error("as message 出错")
 		return nil, err
 	}
 
@@ -276,7 +270,6 @@ func buildTx(tx *types.Transaction, header *types.Header) (*ESTx, error) {
 	esTx.From = msg.From()
 	receipt, err := db.EthClient.TransactionReceipt(context.Background(), tx.Hash())
 	if err != nil {
-		log.Logger.Error("as message 出错")
 		return nil, err
 	}
 	esTx.ReceiptType = receipt.Type
@@ -313,9 +306,6 @@ func buildTx(tx *types.Transaction, header *types.Header) (*ESTx, error) {
 		transactionFee.Mul(tx.GasPrice(), new(big.Int).SetUint64(tx.Gas()))
 		esTx.TransactionFee = transactionFee.String()
 	}
-	fmt.Println(receipt.ContractAddress.String())
-	fmt.Println(emptyContractAddress)
-	fmt.Println(strconv.FormatBool(receipt.ContractAddress.String() == emptyContractAddress))
 	if receipt.ContractAddress.String() != emptyContractAddress {
 		esTx.ContractAddress = &receipt.ContractAddress
 	}
@@ -365,7 +355,6 @@ func bulkBuildTx(block *types.Block) (*bytes.Buffer, []string, []string, error) 
 			}
 			paramsStr, paramsErr := json.Marshal(esTx)
 			if paramsErr != nil {
-				log.Logger.Error("序列化批量创建参数出错")
 				return nil, nil, nil, err
 			}
 			txBuf.Write(paramsStr)
@@ -397,7 +386,6 @@ func bulkBuildAddress(address map[string]bool, contract map[string]bool) (*bytes
 			esAddress := buildAddress(_address, 1)
 			paramsStr, paramsErr := json.Marshal(esAddress)
 			if paramsErr != nil {
-				log.Logger.Error("序列化批量创建参数出错")
 				return nil, err
 			}
 			addressBuf.Write(paramsStr)
@@ -423,7 +411,6 @@ func bulkBuildAddress(address map[string]bool, contract map[string]bool) (*bytes
 			esAddress := buildAddress(_contract, 2)
 			paramsStr, paramsErr := json.Marshal(esAddress)
 			if paramsErr != nil {
-				log.Logger.Error("序列化批量创建参数出错")
 				return nil, err
 			}
 			addressBuf.Write(paramsStr)
@@ -444,12 +431,10 @@ func bulkCreate(buf *bytes.Buffer) (string, error) {
 		res, err := req.Do(context.Background(), db.EsClient)
 
 		if err != nil {
-			log.Logger.Error("批量写入tx出错")
 			return "", err
 		}
 		defer res.Body.Close()
 		if res.StatusCode >= 300 {
-			log.Logger.Error("批量写入http返回报错")
 			return "", errors.New("批量写入http返回报错")
 		} else {
 			return "", nil
@@ -480,6 +465,7 @@ func getAddressListByList(list []string) (*db.EsSearchResponse, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	var response db.EsSearchResponse
 	err = json.NewDecoder(res.Body).Decode(&response)
 	if err != nil {
@@ -505,25 +491,32 @@ func Sync() {
 		}
 		startBg, b := new(big.Int).SetString(startStr, 10)
 		if !b {
+
 			startBg = big.NewInt(0)
 		}
+
 		// 如果数据库比区块链小，就开始更新
 		for i := startBg; i.Cmp(length) == -1; i.Add(i, big.NewInt(1)) {
 			log.Logger.Info(i.String())
 			block, err := db.EthClient.BlockByNumber(context.Background(), i)
 			if err != nil {
 				log.Logger.Error("获取区块信息出错")
+				log.Logger.Error(err.Error())
 				os.Exit(1)
 			}
 			// 存储block
 			esBlock := buildEsBlock(block)
 			err = createEsBlock(esBlock)
 			if err != nil {
+				log.Logger.Error("es block 入库出错")
+				log.Logger.Error(err.Error())
 				os.Exit(1)
 			}
 			txBuf, address, contract, err := bulkBuildTx(block)
 
 			if err != nil {
+				log.Logger.Error("build tx出错")
+				log.Logger.Error(err.Error())
 				os.Exit(1)
 			}
 
@@ -531,6 +524,8 @@ func Sync() {
 
 				_, err = bulkCreate(txBuf)
 				if err != nil {
+					log.Logger.Error("批量创建tx出错")
+					log.Logger.Error(err.Error())
 					os.Exit(1)
 				}
 			}
@@ -538,6 +533,8 @@ func Sync() {
 			allAddress := append(address, contract...)
 			res, err := getAddressListByList(allAddress)
 			if err != nil {
+				log.Logger.Error("获取地址列表出错")
+				log.Logger.Error(err.Error())
 				os.Exit(1)
 			}
 			addressMap := map[string]bool{}
@@ -557,13 +554,18 @@ func Sync() {
 				}
 			}
 			addressBuf, err := bulkBuildAddress(addressMap, contractMap)
+
 			if err != nil {
+				log.Logger.Error("构建入库地址列表出错")
+				log.Logger.Error(err.Error())
 				os.Exit(1)
 			}
 
 			if addressBuf != nil && addressBuf.Len() > 0 {
 				_, err = bulkCreate(addressBuf)
 				if err != nil {
+					log.Logger.Error("入库地址列表出错")
+					log.Logger.Error(err.Error())
 					os.Exit(1)
 				}
 			}
