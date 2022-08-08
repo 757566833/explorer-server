@@ -213,10 +213,12 @@ func GetContracts(c *gin.Context) {
 		},
 		"query": map[string]interface{}{
 			"bool": map[string]interface{}{
-				"filter": [1]interface{}{
+				"must_not": [1]interface{}{
 					map[string]interface{}{
-						"exists": map[string]interface{}{
-							"field": "contractAddress",
+						"term": map[string]interface{}{
+							"contractAddress.keyword": map[string]interface{}{
+								"value": "",
+							},
 						},
 					},
 				},
