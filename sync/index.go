@@ -12,6 +12,7 @@ import (
 	"io"
 	"math/big"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -350,6 +351,8 @@ func buildTx(tx *types.Transaction, header *types.Header) (*ESTx, error) {
 		transactionFee.Mul(gasPrice, new(big.Int).SetUint64(tx.Gas()))
 		esTx.TransactionFee = transactionFee.String()
 	}
+	log.Logger.Debug(`log length : ` + strconv.FormatInt(int64(len(receipt.Logs)), 10))
+	log.Logger.Debug(`contract address : ` + receipt.ContractAddress.String())
 	if receipt.ContractAddress.String() != emptyContractAddress {
 		esTx.ContractAddress = receipt.ContractAddress.String()
 	}
