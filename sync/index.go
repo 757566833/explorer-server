@@ -345,7 +345,10 @@ func bulkBuildTx(block *types.Block) (*bytes.Buffer, []string, []string, error) 
 			txBuf.WriteByte('\n')
 			esTx, err := buildTx(tx, header)
 			addressArray = append(addressArray, esTx.From.String())
-			addressArray = append(addressArray, esTx.To.String())
+			if esTx.To != nil {
+				addressArray = append(addressArray, esTx.To.String())
+			}
+
 			if esTx.ContractAddress != nil && esTx.ContractAddress.String() != emptyContractAddress {
 				contractArray = append(contractArray, esTx.ContractAddress.String())
 			}
