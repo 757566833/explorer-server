@@ -126,14 +126,14 @@ func GetTxByAddress(c *gin.Context) {
 				"should": [2]interface{}{
 					map[string]interface{}{
 						"term": map[string]interface{}{
-							"to": map[string]interface{}{
+							"to.keyword": map[string]interface{}{
 								"value": address,
 							},
 						},
 					},
 					map[string]interface{}{
 						"term": map[string]interface{}{
-							"from": map[string]interface{}{
+							"from.keyword": map[string]interface{}{
 								"value": address,
 							},
 						},
