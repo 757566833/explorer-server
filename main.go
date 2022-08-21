@@ -4,6 +4,7 @@ import (
 	"explorer/db"
 	"explorer/log"
 	"explorer/route"
+	"explorer/sync"
 	"os"
 )
 
@@ -13,6 +14,6 @@ func main() {
 	log.InitLogger()
 	ExplorerServerPort := os.Getenv("EXPLORER_SERVER_PORT")
 	router := route.InitRouter()
-	//go sync.Sync()
+	go sync.Sync()
 	router.Run("0.0.0.0:" + ExplorerServerPort)
 }
