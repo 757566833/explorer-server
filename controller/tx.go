@@ -215,7 +215,8 @@ func RefreshAddress(c *gin.Context) {
 	if err != nil {
 		c.IndentedJSON(http.StatusBadRequest, err.Error())
 	}
-	if string(code[:]) == "0x" && response.Type == 2 {
+	codeStr := string(code[:])
+	if codeStr == "" && response.Type == 2 {
 		// 修改为 地址
 		body := map[string]interface{}{
 			"type": 1,
@@ -234,8 +235,9 @@ func RefreshAddress(c *gin.Context) {
 		if err != nil {
 			c.IndentedJSON(http.StatusBadRequest, err.Error())
 		}
+		defer res.Body.Close()
 	}
-	if string(code[:]) != "0x" && response.Type == 1 {
+	if codeStr != "" && response.Type == 1 {
 		body := map[string]interface{}{
 			"type": 2,
 		}
@@ -253,9 +255,10 @@ func RefreshAddress(c *gin.Context) {
 		if err != nil {
 			c.IndentedJSON(http.StatusBadRequest, err.Error())
 		}
+		defer res.Body.Close()
 	}
 	result := "address"
-	if string(code[:]) == "0x" {
+	if codeStr != "" {
 		result = "contract"
 	}
 	c.IndentedJSON(http.StatusOK, result)
