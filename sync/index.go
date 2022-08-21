@@ -8,7 +8,6 @@ import (
 	"explorer/db"
 	"explorer/log"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"io"
 	"math/big"
@@ -18,108 +17,108 @@ import (
 )
 
 type ESBlock struct {
-	ParentHash  common.Hash      `json:"parentHash"       gencodec:"required"`
-	UncleHash   common.Hash      `json:"sha3Uncles"       gencodec:"required"`
-	Coinbase    common.Address   `json:"miner"`
-	Root        common.Hash      `json:"stateRoot"        gencodec:"required"`
-	TxHash      common.Hash      `json:"transactionsRoot" gencodec:"required"`
-	ReceiptHash common.Hash      `json:"receiptsRoot"     gencodec:"required"`
-	Bloom       types.Bloom      `json:"logsBloom"        gencodec:"required"`
-	Difficulty  string           `json:"difficulty"       gencodec:"required"`
-	Number      string           `json:"number"           gencodec:"required"`
-	GasLimit    string           `json:"gasLimit"         gencodec:"required"`
-	GasUsed     string           `json:"gasUsed"          gencodec:"required"`
-	Time        uint64           `json:"timestamp"        gencodec:"required"`
-	Extra       []byte           `json:"extraData"        gencodec:"required"`
-	MixDigest   common.Hash      `json:"mixHash"`
-	Nonce       types.BlockNonce `json:"nonce"`
+	ParentHash  string      `json:"parentHash"`
+	UncleHash   string      `json:"sha3Uncles"`
+	Coinbase    string      `json:"miner"`
+	Root        string      `json:"stateRoot"`
+	TxHash      string      `json:"transactionsRoot"`
+	ReceiptHash string      `json:"receiptsRoot"`
+	Bloom       types.Bloom `json:"logsBloom"`
+	Difficulty  string      `json:"difficulty"`
+	Number      string      `json:"number"`
+	GasLimit    string      `json:"gasLimit"`
+	GasUsed     string      `json:"gasUsed"`
+	Time        uint64      `json:"timestamp"`
+	Extra       []byte      `json:"extraData"`
+	MixDigest   string      `json:"mixHash"`
+	Nonce       uint64      `json:"nonce"`
 
 	// BaseFee was added by EIP-1559 and is ignored in legacy headers.
 	BaseFee string `json:"baseFeePerGas" rlp:"optional"`
 
-	Txns      int         `json:"txns"                  gencodec:"required"`
-	BlockHash common.Hash `json:"blockHash"             gencodec:"required"`
-	Size      string      `json:"size"                  gencodec:"required"`
-	BurntFees string      `json:"burntFees"                 `
+	Txns      int    `json:"txns"`
+	BlockHash string `json:"blockHash"`
+	Size      string `json:"size"`
+	BurntFees string `json:"burntFees"`
 }
 
 type ESTx struct {
-	Type       byte             `json:"type"                        gencodec:"required"`
+	Type       byte             `json:"type"`
 	Nonce      string           `json:"nonce"`
-	GasPrice   string           `json:"gasPrice"                    gencodec:"required"`
-	GasTipCap  string           `json:"maxPriorityFeePerGas"        gencodec:"required"`
-	GasFeeCap  string           `json:"maxFeePerGas"                gencodec:"required"`
-	Gas        string           `json:"gasLimit"                    gencodec:"required"`
-	Value      string           `json:"value"                       gencodec:"required"`
-	Data       []byte           `json:"input"                       gencodec:"required"`
-	Number     string           `json:"number"                      gencodec:"required"`
-	V          string           `json:"v"                           gencodec:"required"`
-	R          string           `json:"r"                           gencodec:"required"`
-	S          string           `json:"s"                           gencodec:"required"`
-	To         *common.Address  `json:"to"                          gencodec:"required"`
-	Hash       common.Hash      `json:"hash"                        gencodec:"required"`
-	Time       uint64           `json:"timestamp"                   gencodec:"required"`
-	From       common.Address   `json:"from"                        gencodec:"required"`
-	AccessList types.AccessList `json:"accessList"                  gencodec:"required"`
-	IsFake     bool             `json:"isFake"                      gencodec:"required"`
+	GasPrice   string           `json:"gasPrice"`
+	GasTipCap  string           `json:"maxPriorityFeePerGas"`
+	GasFeeCap  string           `json:"maxFeePerGas"`
+	Gas        string           `json:"gasLimit"`
+	Value      string           `json:"value"`
+	Data       []byte           `json:"input"`
+	Number     string           `json:"number"`
+	V          string           `json:"v"`
+	R          string           `json:"r"`
+	S          string           `json:"s"`
+	To         string           `json:"to"`
+	Hash       string           `json:"hash"`
+	Time       uint64           `json:"timestamp"`
+	From       string           `json:"from"`
+	AccessList types.AccessList `json:"accessList"`
+	IsFake     bool             `json:"isFake"`
 	BaseFee    string           `json:"baseFeePerGas" rlp:"optional"`
 
 	// receipt
 	ReceiptType       uint8        `json:"receiptType"`
 	PostState         []byte       `json:"postState"`
 	Status            string       `json:"status"`
-	CumulativeGasUsed string       `json:"cumulativeGasUsed"       gencodec:"required"`
-	Bloom             types.Bloom  `json:"logsBloom"               gencodec:"required"`
-	Logs              []*types.Log `json:"logs"                    gencodec:"required"`
-	LogLength         uint64       `json:"logLength"               gencodec:"required"`
+	CumulativeGasUsed string       `json:"cumulativeGasUsed"`
+	Bloom             types.Bloom  `json:"logsBloom"`
+	Logs              []*types.Log `json:"logs"`
+	LogLength         uint64       `json:"logLength"`
 
 	// Implementation fields: These fields are added by geth when processing a transaction.
 	// They are stored in the chain database.
-	TxHash          common.Hash     `json:"transactionHash"         gencodec:"required"`
-	ContractAddress *common.Address `json:"contractAddress"`
-	GasUsed         string          `json:"gasUsed"                 gencodec:"required"`
+	TxHash          string `json:"transactionHash"`
+	ContractAddress string `json:"contractAddress"`
+	GasUsed         string `json:"gasUsed"`
 
 	// Inclusion information: These fields provide information about the inclusion of the
 	// transaction corresponding to this receipt.
-	BlockHash        common.Hash `json:"blockHash"`
-	BlockNumber      string      `json:"blockNumber"`
-	TransactionIndex uint        `json:"transactionIndex"`
-	TransactionFee   string      `json:"transactionFee"`
+	BlockHash        string `json:"blockHash"`
+	BlockNumber      string `json:"blockNumber"`
+	TransactionIndex uint   `json:"transactionIndex"`
+	TransactionFee   string `json:"transactionFee"`
 	// 1559
 	BurntFees    string `json:"burntFees"`
 	TxSavingsFee string `json:"txSavingsFee"`
 }
 
 type ESAddress struct {
-	address string `json:"address"                        gencodec:"required"`
-	Type    uint8  `json:"type"  gencodec:"required"`
+	address string `json:"address"`
+	Type    uint8  `json:"type"`
 }
 type ESBlockHit1 struct {
-	Source ESBlock `json:"_source"                       gencodec:"required"`
-	Index  string  `json:"_index"                        gencodec:"required"`
-	Type   string  `json:"_type"                         gencodec:"required"`
-	Id     string  `json:"_id"                           gencodec:"required"`
-	Score  string  `json:"_score"                        gencodec:"required"`
+	Source ESBlock `json:"_source"`
+	Index  string  `json:"_index"`
+	Type   string  `json:"_type"`
+	Id     string  `json:"_id"`
+	Score  string  `json:"_score"`
 }
 type ESTotal struct {
-	Value    int64  `json:"value"                        gencodec:"required"`
-	Relation string `json:"relation"                        gencodec:"required"`
+	Value    int64  `json:"value"`
+	Relation string `json:"relation"`
 }
 type ESBlockHit2 struct {
-	Hits  []ESBlockHit1 `json:"hits"                       gencodec:"required"`
-	Total ESTotal       `json:"total"                       gencodec:"required"`
+	Hits  []ESBlockHit1 `json:"hits"`
+	Total ESTotal       `json:"total"`
 }
 type ESShards struct {
-	Total      int64 `json:"total"                       gencodec:"required"`
-	Successful int64 `json:"successful"                       gencodec:"required"`
-	Skipped    int64 `json:"skipped"                       gencodec:"required"`
-	Failed     int64 `json:"failed"                       gencodec:"required"`
+	Total      int64 `json:"total"`
+	Successful int64 `json:"successful"`
+	Skipped    int64 `json:"skipped"`
+	Failed     int64 `json:"failed"`
 }
 type ESBlockRes struct {
-	Took     int64       `json:"took"                       gencodec:"required"`
-	TimedOut bool        `json:"timed_out"                       gencodec:"required"`
-	Shards   ESShards    `json:"_shards"                       gencodec:"required"`
-	Hits     ESBlockHit2 `json:"hits"                       gencodec:"required"`
+	Took     int64       `json:"took"`
+	TimedOut bool        `json:"timed_out"`
+	Shards   ESShards    `json:"_shards"`
+	Hits     ESBlockHit2 `json:"hits"`
 }
 
 var emptyContractAddress = "0x0000000000000000000000000000000000000000"
@@ -188,24 +187,32 @@ func buildEsBlock(block *types.Block) *ESBlock {
 	body := block.Body()
 	txLength := len(body.Transactions)
 	esBlock := new(ESBlock)
-	esBlock.ParentHash = header.ParentHash
-	esBlock.UncleHash = header.UncleHash
-	esBlock.Coinbase = header.Coinbase
-	esBlock.Root = header.Root
-	esBlock.TxHash = header.TxHash
-	esBlock.ReceiptHash = header.ReceiptHash
+	esBlock.ParentHash = header.ParentHash.String()
+	esBlock.UncleHash = header.UncleHash.String()
+	esBlock.Coinbase = header.Coinbase.String()
+	esBlock.Root = header.Root.String()
+	esBlock.TxHash = header.TxHash.String()
+	esBlock.ReceiptHash = header.ReceiptHash.String()
 	esBlock.Bloom = header.Bloom
-	esBlock.Difficulty = header.Difficulty.String()
-	esBlock.Number = header.Number.String()
+	if header.Difficulty != nil {
+		esBlock.Difficulty = header.Difficulty.String()
+	}
+	if header.Number != nil {
+		esBlock.Number = header.Number.String()
+	}
+
 	esBlock.GasLimit = new(big.Int).SetUint64(header.GasLimit).String()
 	esBlock.GasUsed = new(big.Int).SetUint64(header.GasUsed).String()
 	esBlock.Time = header.Time
 	esBlock.Extra = header.Extra
-	esBlock.MixDigest = header.MixDigest
-	esBlock.Nonce = header.Nonce
-	esBlock.BaseFee = header.BaseFee.String()
+	esBlock.MixDigest = header.MixDigest.String()
+	esBlock.Nonce = header.Nonce.Uint64()
+	if header.BaseFee != nil {
+		esBlock.BaseFee = header.BaseFee.String()
+	}
+
 	esBlock.Txns = txLength
-	esBlock.BlockHash = block.Hash()
+	esBlock.BlockHash = block.Hash().String()
 	esBlock.Size = block.Size().String()
 	//1559
 	if header.BaseFee != nil {
@@ -244,30 +251,63 @@ func buildTx(tx *types.Transaction, header *types.Header) (*ESTx, error) {
 	esTx.Type = tx.Type()
 
 	esTx.Nonce = new(big.Int).SetUint64(tx.Nonce()).String()
-	esTx.GasPrice = tx.GasPrice().String()
-	esTx.GasTipCap = tx.GasTipCap().String()
-	esTx.GasFeeCap = tx.GasFeeCap().String()
+	gasPrice := tx.GasPrice()
+	if gasPrice != nil {
+		esTx.GasPrice = gasPrice.String()
+	}
+
+	gasTipCap := tx.GasTipCap()
+	if gasTipCap != nil {
+		esTx.GasTipCap = gasTipCap.String()
+	}
+	gasFeeCap := tx.GasFeeCap()
+	if gasFeeCap != nil {
+		esTx.GasFeeCap = gasFeeCap.String()
+	}
 	esTx.Gas = new(big.Int).SetUint64(tx.Gas()).String()
-	esTx.Value = tx.Value().String()
+	value := tx.Value()
+	if value != nil {
+		esTx.Value = value.String()
+	}
+
 	esTx.Data = tx.Data()
-	esTx.Number = header.Number.String()
-	esTx.To = tx.To()
-	esTx.Hash = tx.Hash()
+	number := header.Number
+	if number != nil {
+		esTx.Number = header.Number.String()
+	}
+
+	to := tx.To()
+	if to != nil {
+		esTx.To = to.String()
+	}
+
+	esTx.Hash = tx.Hash().String()
 
 	v, r, s := tx.RawSignatureValues()
-	esTx.V = v.String()
-	esTx.R = r.String()
-	esTx.S = s.String()
+	if v != nil {
+		esTx.V = v.String()
+	}
+	if r != nil {
+		esTx.R = r.String()
+	}
+	if s != nil {
+		esTx.S = s.String()
+	}
+
 	esTx.Time = header.Time
-	esTx.BaseFee = header.BaseFee.String()
-	msg, err := tx.AsMessage(types.LatestSignerForChainID(tx.ChainId()), tx.GasPrice())
+	baseFee := header.BaseFee
+	if baseFee != nil {
+		esTx.BaseFee = baseFee.String()
+	}
+	// todo 为什么解析 需要用到chainId
+	msg, err := tx.AsMessage(types.LatestSignerForChainID(tx.ChainId()), gasPrice)
 	if err != nil {
 		return nil, err
 	}
 
 	esTx.IsFake = msg.IsFake()
 	esTx.AccessList = msg.AccessList()
-	esTx.From = msg.From()
+	esTx.From = msg.From().String()
 	receipt, err := db.EthClient.TransactionReceipt(context.Background(), tx.Hash())
 	if err != nil {
 		return nil, err
@@ -279,22 +319,26 @@ func buildTx(tx *types.Transaction, header *types.Header) (*ESTx, error) {
 	esTx.Bloom = receipt.Bloom
 	esTx.Logs = receipt.Logs
 	esTx.LogLength = uint64(len(receipt.Logs))
-	esTx.TxHash = receipt.TxHash
+	esTx.TxHash = receipt.TxHash.String()
 
 	esTx.GasUsed = new(big.Int).SetUint64(receipt.GasUsed).String()
-	esTx.BlockHash = receipt.BlockHash
-	esTx.BlockNumber = receipt.BlockNumber.String()
+	esTx.BlockHash = receipt.BlockHash.String()
+	blockNumber := receipt.BlockNumber
+	if blockNumber != nil {
+		esTx.BlockNumber = blockNumber.String()
+	}
+
 	esTx.TransactionIndex = receipt.TransactionIndex
 	// 1559
 	if header.BaseFee != nil {
 		// 交易费
 		transactionFee := new(big.Int)
-		transactionFee.Add(header.BaseFee, tx.GasTipCap())
+		transactionFee.Add(header.BaseFee, gasTipCap)
 		transactionFee.Mul(transactionFee, new(big.Int).SetUint64(tx.Gas()))
 		esTx.TransactionFee = transactionFee.String()
 		// Savings Fees
 		txSavingsFee := new(big.Int)
-		txSavingsFee.Sub(tx.GasFeeCap(), tx.GasTipCap())
+		txSavingsFee.Sub(gasFeeCap, gasTipCap)
 		txSavingsFee.Sub(txSavingsFee, header.BaseFee)
 		txSavingsFee.Mul(transactionFee, new(big.Int).SetUint64(tx.Gas()))
 		esTx.TxSavingsFee = txSavingsFee.String()
@@ -303,11 +347,11 @@ func buildTx(tx *types.Transaction, header *types.Header) (*ESTx, error) {
 		esTx.BurntFees = burntFees.String()
 	} else {
 		transactionFee := new(big.Int)
-		transactionFee.Mul(tx.GasPrice(), new(big.Int).SetUint64(tx.Gas()))
+		transactionFee.Mul(gasPrice, new(big.Int).SetUint64(tx.Gas()))
 		esTx.TransactionFee = transactionFee.String()
 	}
 	if receipt.ContractAddress.String() != emptyContractAddress {
-		esTx.ContractAddress = &receipt.ContractAddress
+		esTx.ContractAddress = receipt.ContractAddress.String()
 	}
 	return esTx, nil
 }
@@ -344,10 +388,13 @@ func bulkBuildTx(block *types.Block) (*bytes.Buffer, []string, []string, error) 
 			txBuf.Write(createStr)
 			txBuf.WriteByte('\n')
 			esTx, err := buildTx(tx, header)
-			addressArray = append(addressArray, esTx.From.String())
-			addressArray = append(addressArray, esTx.To.String())
-			if esTx.ContractAddress != nil && esTx.ContractAddress.String() != emptyContractAddress {
-				contractArray = append(contractArray, esTx.ContractAddress.String())
+			addressArray = append(addressArray, esTx.From)
+			if esTx.To != "" {
+				addressArray = append(addressArray, esTx.To)
+			}
+
+			if esTx.ContractAddress != "" && esTx.ContractAddress != emptyContractAddress {
+				contractArray = append(contractArray, esTx.ContractAddress)
 			}
 
 			if err != nil {
