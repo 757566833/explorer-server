@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"explorer/db"
+	"explorer/sync"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
@@ -189,6 +191,75 @@ func GetTxByAddress(c *gin.Context) {
 	c.IndentedJSON(res.StatusCode, response)
 }
 
+func RefreshAddress(c *gin.Context) {
+	address := c.Param("address")
+	if address == "" {
+		c.IndentedJSON(http.StatusBadRequest, "")
+	}
+
+	code, err := db.EthClient.CodeAt(context.Background(), common.HexToAddress(address), nil)
+	if err != nil {
+		c.IndentedJSON(http.StatusBadRequest, err.Error())
+	}
+	req := esapi.GetRequest{
+		Index:      "address",
+		DocumentID: address,
+	}
+	res, err := req.Do(context.Background(), db.EsClient)
+	if err != nil {
+		c.IndentedJSON(http.StatusBadRequest, err.Error())
+	}
+	defer res.Body.Close()
+	var response sync.ESAddress
+	err = json.NewDecoder(res.Body).Decode(&response)
+	if err != nil {
+		c.IndentedJSON(http.StatusBadRequest, err.Error())
+	}
+	if string(code[:]) == "0x" && response.Type == 2 {
+		// 修改为 地址
+		body := map[string]interface{}{
+			"type": 1,
+		}
+		var buf bytes.Buffer
+		err = json.NewEncoder(&buf).Encode(body)
+		if err != nil {
+			c.IndentedJSON(http.StatusBadRequest, err.Error())
+		}
+		updateReq := esapi.UpdateRequest{
+			Index:      "address",
+			DocumentID: address,
+			Body:       &buf,
+		}
+		res, err = updateReq.Do(context.Background(), db.EsClient)
+		if err != nil {
+			c.IndentedJSON(http.StatusBadRequest, err.Error())
+		}
+	}
+	if string(code[:]) != "0x" && response.Type == 1 {
+		body := map[string]interface{}{
+			"type": 2,
+		}
+		var buf bytes.Buffer
+		err = json.NewEncoder(&buf).Encode(body)
+		if err != nil {
+			c.IndentedJSON(http.StatusBadRequest, err.Error())
+		}
+		updateReq := esapi.UpdateRequest{
+			Index:      "address",
+			DocumentID: address,
+			Body:       &buf,
+		}
+		res, err = updateReq.Do(context.Background(), db.EsClient)
+		if err != nil {
+			c.IndentedJSON(http.StatusBadRequest, err.Error())
+		}
+	}
+	result := "address"
+	if string(code[:]) == "0x" {
+		result = "contract"
+	}
+	c.IndentedJSON(http.StatusOK, result)
+}
 func GetContracts(c *gin.Context) {
 	defaultSize := 20
 	sizeStr := c.DefaultQuery("size", "20")
