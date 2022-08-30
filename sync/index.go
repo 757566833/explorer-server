@@ -8,6 +8,7 @@ import (
 	"explorer/db"
 	"explorer/log"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/core/types"
 	"io"
 	"math/big"
@@ -87,6 +88,8 @@ type ESTx struct {
 	// 1559
 	BurntFees    string `json:"burntFees"`
 	TxSavingsFee string `json:"txSavingsFee"`
+
+	Reason string `json:"reason"`
 }
 
 type ESAddress struct {
@@ -99,6 +102,15 @@ type ESBlockHit1 struct {
 	Type   string  `json:"_type"`
 	Id     string  `json:"_id"`
 	Score  string  `json:"_score"`
+}
+type RpcError struct {
+	Code    int64  `json:"code"`
+	Message string `json:"message"`
+}
+type CallType struct {
+	Error   RpcError `json:"error"`
+	Id      uint64   `json:"id"`
+	Jsonrpc string   `json:"jsonrpc"`
 }
 type ESTotal struct {
 	Value    int64  `json:"value"`
@@ -327,8 +339,29 @@ func buildTx(tx *types.Transaction, header *types.Header) (*ESTx, error) {
 	if blockNumber != nil {
 		esTx.BlockNumber = blockNumber.String()
 	}
-
+	if receipt.Status == 0 {
+		msg := ethereum.CallMsg{
+			From:       msg.From(),
+			To:         tx.To(),
+			Gas:        tx.Gas(),
+			GasPrice:   tx.GasPrice(),
+			GasFeeCap:  gasFeeCap,
+			GasTipCap:  gasTipCap,
+			Value:      tx.Value(),
+			Data:       tx.Data(),
+			AccessList: tx.AccessList(),
+		}
+		b, err := db.EthClient.CallContractAtHash(context.Background(), msg, receipt.BlockHash)
+		if err == nil {
+			var call CallType
+			err = json.Unmarshal(b, &call)
+			if err == nil {
+				esTx.Reason = call.Error.Message
+			}
+		}
+	}
 	esTx.TransactionIndex = receipt.TransactionIndex
+
 	// 1559
 	if header.BaseFee != nil {
 		// 交易费
@@ -554,6 +587,7 @@ func Sync() {
 			// 存储block
 			esBlock := buildEsBlock(block)
 			err = createEsBlock(esBlock)
+
 			if err != nil {
 				log.Logger.Error("es block 入库出错")
 				log.Logger.Error(err.Error())
