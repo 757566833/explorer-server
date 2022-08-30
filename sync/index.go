@@ -103,15 +103,7 @@ type ESBlockHit1 struct {
 	Id     string  `json:"_id"`
 	Score  string  `json:"_score"`
 }
-type RpcError struct {
-	Code    int64  `json:"code"`
-	Message string `json:"message"`
-}
-type CallType struct {
-	Error   RpcError `json:"error"`
-	Id      uint64   `json:"id"`
-	Jsonrpc string   `json:"jsonrpc"`
-}
+
 type ESTotal struct {
 	Value    int64  `json:"value"`
 	Relation string `json:"relation"`
@@ -351,13 +343,9 @@ func buildTx(tx *types.Transaction, header *types.Header) (*ESTx, error) {
 			Data:       tx.Data(),
 			AccessList: tx.AccessList(),
 		}
-		b, err := db.EthClient.CallContractAtHash(context.Background(), msg, receipt.BlockHash)
-		if err == nil {
-			var call CallType
-			err = json.Unmarshal(b, &call)
-			if err == nil {
-				esTx.Reason = call.Error.Message
-			}
+		_, err := db.EthClient.CallContractAtHash(context.Background(), msg, receipt.BlockHash)
+		if err != nil {
+			esTx.Reason = err.Error()
 		}
 	}
 	esTx.TransactionIndex = receipt.TransactionIndex
